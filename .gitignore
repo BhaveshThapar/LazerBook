@@ -1,0 +1,25 @@
+.claude/
+lazerbook_recreation_prompt.txt
+original_project/
+
+# Build trees
+build/
+build-*/
+cmake-build-*/
+
+# Coverage / profiling
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+coverage/
+
+# Bench output
+bench-results/
+fuzz-corpus/
+crash-*
+
+# Editor / OS
+.DS_Store
+compile_commands.json
+.cache/

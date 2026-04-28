@@ -1,0 +1,3 @@
+[submodule "third_party/liquibook"]
+	path = third_party/liquibook
+	url = https://github.com/enewhuis/liquibook

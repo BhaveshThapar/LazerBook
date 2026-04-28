@@ -1,0 +1,22 @@
+---
+BasedOnStyle: Google
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+NamespaceIndentation: None
+AlignAfterOpenBracket: BlockIndent
+DerivePointerAlignment: false
+PointerAlignment: Left
+SortIncludes: CaseInsensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<lazerbook/'
+    Priority: 1
+  - Regex: '^"'
+    Priority: 2
+  - Regex: '^<[^/]*\.h>'
+    Priority: 3
+  - Regex: '^<'
+    Priority: 4
+...
