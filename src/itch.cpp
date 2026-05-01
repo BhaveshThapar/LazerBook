@@ -54,7 +54,7 @@ std::size_t expected_length(MessageType type) noexcept {
         case MessageType::OrderDelete:
             return 19;
         case MessageType::OrderReplace:
-            return 36;
+            return 35;
         case MessageType::Trade:
             return 44;
         case MessageType::CrossTrade:
