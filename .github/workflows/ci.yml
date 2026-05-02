@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+        build_type: [Debug, Release]
+        compiler: [gcc-13, clang-18]
+        exclude:
+          # macOS uses AppleClang, handled by the include below.
+          - os: macos-14
+            compiler: gcc-13
+          - os: macos-14
+            compiler: clang-18
+        include:
+          - os: macos-14
+            compiler: appleclang
+            build_type: Debug
+          - os: macos-14
+            compiler: appleclang
+            build_type: Release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select compiler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          if [ "${{ matrix.compiler }}" = "gcc-13" ]; then
+            echo "CC=gcc-13"  >> "$GITHUB_ENV"
+            echo "CXX=g++-13"  >> "$GITHUB_ENV"
+          else
+            echo "CC=clang-18"   >> "$GITHUB_ENV"
+            echo "CXX=clang++-18" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure
+        run: |
+          SAN=""
+          if [ "${{ matrix.build_type }}" = "Debug" ]; then
+            SAN="-DLAZERBOOK_ENABLE_ASAN=ON -DLAZERBOOK_ENABLE_UBSAN=ON"
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} $SAN
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format-18
+        run: sudo apt-get update && sudo apt-get install -y clang-format-18
+      - name: Check formatting
+        run: |
+          find include src tests -name '*.hpp' -o -name '*.cpp' \
+            | xargs clang-format-18 --dry-run -Werror
