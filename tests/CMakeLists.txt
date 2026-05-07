@@ -14,6 +14,7 @@ add_executable(test_lazerbook
     test_types.cpp
     test_itch.cpp
     test_pool.cpp
+    test_book.cpp
 )
 
 target_link_libraries(test_lazerbook PRIVATE
