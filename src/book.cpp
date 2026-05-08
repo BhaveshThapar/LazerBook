@@ -56,7 +56,7 @@ void Book::add(Order* o) noexcept {
             best_bid_idx_ = idx;
         }
     } else {
-        if (best_ask_idx_ == kInvalidIdx || idx > best_ask_idx_) {
+        if (best_ask_idx_ == kInvalidIdx || idx < best_ask_idx_) {
             best_ask_idx_ = idx;
         }
     }
