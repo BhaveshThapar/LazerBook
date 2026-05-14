@@ -16,6 +16,7 @@ add_executable(test_lazerbook
     test_pool.cpp
     test_book.cpp
     test_matcher.cpp
+    test_spsc.cpp
 )
 
 target_link_libraries(test_lazerbook PRIVATE
