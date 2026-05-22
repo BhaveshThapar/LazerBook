@@ -18,6 +18,7 @@ add_executable(test_lazerbook
     test_matcher.cpp
     test_reconstruct.cpp
     test_fba.cpp
+    test_sim.cpp
     test_spsc.cpp
 )
 
