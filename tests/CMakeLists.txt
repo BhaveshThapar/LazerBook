@@ -19,7 +19,9 @@ add_executable(test_lazerbook
     test_reconstruct.cpp
     test_fba.cpp
     test_sim.cpp
+    test_diff.cpp
     test_spsc.cpp
+    test_diff_liquibook.cpp
 )
 
 target_link_libraries(test_lazerbook PRIVATE
