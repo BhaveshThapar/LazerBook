@@ -3,8 +3,6 @@
 #include <cstdint>
 #include <vector>
 
-#include <cassert>
-
 namespace lazerbook {
 
 FbaMatcher::FbaMatcher(Book& book, OrderPool& pool, EventSink& sink, std::uint64_t seed)
@@ -104,8 +102,6 @@ std::uint64_t FbaMatcher::clear() {
     }
     // Clearing price P* = midpoint of the Walrasian interval (tie-break).
     Price4 const clearing_price{lo + ((lo_idx + hi_idx) / 2U)};
-    // Marginal price must collapse to a single tick before pro-rata.
-    assert(hi_idx == lo_idx && "walrasian interval spans multiple ticks");
 
     // Greedy price-time fills inside the cleared volume. The choice of P* sets
     // only the trade price, not who trades, so greedy crossing is always safe.
