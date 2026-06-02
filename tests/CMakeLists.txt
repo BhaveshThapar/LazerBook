@@ -21,6 +21,7 @@ add_executable(test_lazerbook
     test_sim.cpp
     test_diff.cpp
     test_spsc.cpp
+    test_replay.cpp
     test_diff_liquibook.cpp
 )
 
