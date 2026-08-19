@@ -31,5 +31,11 @@ target_link_libraries(test_lazerbook PRIVATE
 find_package(Threads REQUIRED)
 target_link_libraries(test_lazerbook PRIVATE Threads::Threads)
 
+# test_diff_liquibook.cpp includes <book/order_book.h>; without this the gated
+# cases never compile, which is why they had never run.
+if(LAZERBOOK_WITH_LIQUIBOOK)
+    target_link_libraries(test_lazerbook PRIVATE liquibook_iface)
+endif()
+
 include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
 doctest_discover_tests(test_lazerbook)
