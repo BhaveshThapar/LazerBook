@@ -103,6 +103,48 @@ void bench_cancel_resting() {
     print("cancel-resting", p.report());
 }
 
+// Scenario 4: the path the other three avoid. A sparse book -- levels far
+// apart, as a real book looks after a sweep -- where every timed aggressor
+// fully consumes the touch and forces the best-price cursor to move to the
+// next populated level. Before the occupancy bitmap this was a linear rescan
+// over every intervening tick; the gap here is 500 ticks by construction, so
+// the difference is directly visible rather than hidden behind a level that
+// never empties.
+void bench_sweep_empties_level() {
+    constexpr std::uint32_t kBase = 100000;
+    constexpr std::uint32_t kGap = 500;
+    constexpr int kLevels = 8;
+
+    Book book(Price4{kBase}, 4000);
+    OrderPool pool(4096);
+    NullSink sink;
+    Matcher m(book, pool, sink);
+
+    std::uint64_t next_id = 1;
+    // Sparse resting asks at 0, 500, 1000, ... so emptying the touch has to
+    // travel kGap ticks to find the next one.
+    for (int k = 1; k < kLevels; ++k) {
+        m.on_new(
+            OrderId{next_id++}, Side::Sell, OrderType::Limit,
+            Price4{kBase + (static_cast<std::uint32_t>(k) * kGap)}, 1000
+        );
+    }
+
+    Percentiles p;
+    p.reserve(kIters);
+    for (int i = 0; i < kIters; ++i) {
+        // Untimed: restore the touch so each timed op faces the same shape.
+        m.on_new(OrderId{next_id++}, Side::Sell, OrderType::Limit, Price4{kBase}, 100);
+
+        // Timed: consume the touch exactly, emptying it.
+        std::uint64_t const t0 = rdtsc_begin();
+        m.on_new(OrderId{next_id++}, Side::Buy, OrderType::Ioc, Price4{kBase}, 100);
+        std::uint64_t const t1 = rdtsc_end();
+        p.add(ticks_to_ns(t1 - t0));
+    }
+    print("sweep-empties-level", p.report());
+}
+
 }  // namespace
 
 int main() {
@@ -111,5 +153,6 @@ int main() {
     bench_insert_no_match();
     bench_insert_one_fill();
     bench_cancel_resting();
+    bench_sweep_empties_level();
     return 0;
 }

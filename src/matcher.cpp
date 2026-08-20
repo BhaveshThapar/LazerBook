@@ -3,7 +3,7 @@
 namespace lazerbook {
 
 Matcher::Matcher(Book& book, OrderPool& pool, EventSink& sink)
-    : book_(book), pool_(pool), sink_(sink) {}
+    : book_(book), pool_(pool), sink_(sink), resting_(pool.capacity() * 2) {}
 
 bool Matcher::crosses(Side aggressor, Price4 limit, Price4 resting_px, bool unbounded)
     const noexcept {
@@ -22,32 +22,31 @@ bool Matcher::can_fully_fill(Side side, Price4 limit, std::uint32_t shares) cons
     if (book_.empty(opp)) {
         return false;
     }
-    if (side == Side::Buy) {
-        // Walk asks up from best until past the limit.
-        for (std::uint32_t px = value_of(book_.best_ask()); px <= value_of(limit); ++px) {
-            PriceLevel const* lvl = book_.level_at(Price4{px}, Side::Sell);
-            if (lvl != nullptr) {
-                avail += lvl->total_shares;
-                if (avail >= shares) {
-                    return true;
-                }
-            }
+    // Hops between populated levels via the occupancy bitmap rather than
+    // probing every tick between the touch and the limit -- the second
+    // O(num_ticks) walk the book used to do, on the FOK path.
+    Price4 const best = (side == Side::Buy) ? book_.best_ask() : book_.best_bid();
+    std::uint32_t idx = book_.next_level_idx(book_.index_of_price(best), opp);
+
+    while (idx != Book::kInvalidIdx) {
+        Price4 const px = book_.price_at_index(idx);
+        if (!crosses(side, limit, px, /*unbounded=*/false)) {
+            break;
         }
-    } else {
-        // Walk bids down from best until below the limit.
-        std::uint32_t px = value_of(book_.best_bid());
-        while (px + 1 > value_of(limit)) {  // px >= limit, underflow-safe
-            PriceLevel const* lvl = book_.level_at(Price4{px}, Side::Buy);
-            if (lvl != nullptr) {
-                avail += lvl->total_shares;
-                if (avail >= shares) {
-                    return true;
-                }
-            }
-            if (px == 0) {
+        avail += book_.level_by_index(idx, opp).total_shares;
+        if (avail >= shares) {
+            return true;
+        }
+        if (side == Side::Buy) {
+            if (idx + 1 >= book_.num_ticks()) {
                 break;
             }
-            --px;
+            idx = book_.next_level_idx(idx + 1, opp);
+        } else {
+            if (idx == 0) {
+                break;
+            }
+            idx = book_.next_level_idx(idx - 1, opp);
         }
     }
     return avail >= shares;
@@ -71,7 +70,7 @@ std::uint32_t Matcher::match(
             sink_.on_fill(Fill{id, passive->id, best, qty, side});
             remaining -= qty;
             if (qty == passive->shares) {
-                resting_.erase(value_of(passive->id));
+                resting_.erase(passive->id);
                 book_.remove(passive);  // refreshes best cursor when level empties
                 pool_.release(passive);
             } else {
@@ -93,7 +92,7 @@ void Matcher::rest(OrderId id, Side side, Price4 price, std::uint32_t shares) {
     o->shares = shares;
     o->side = side;
     book_.add(o);
-    resting_.emplace(value_of(id), o);
+    resting_.insert(id, o);
     sink_.on_accepted(OrderAccepted{id, side, price, shares});
 }
 
@@ -102,7 +101,7 @@ void Matcher::on_new(OrderId id, Side side, OrderType type, Price4 price, std::u
         sink_.on_rejected(OrderRejected{id, RejectReason::InvalidShares});
         return;
     }
-    if (resting_.contains(value_of(id))) {
+    if (resting_.contains(id)) {
         sink_.on_rejected(OrderRejected{id, RejectReason::DuplicateOrderId});
         return;
     }
@@ -140,33 +139,31 @@ void Matcher::on_new(OrderId id, Side side, OrderType type, Price4 price, std::u
 }
 
 void Matcher::on_cancel(OrderId id) {
-    auto it = resting_.find(value_of(id));
-    if (it == resting_.end()) {
+    Order* o = resting_.find(id);
+    if (o == nullptr) {
         sink_.on_rejected(OrderRejected{id, RejectReason::OrderNotFound});
         return;
     }
-    Order* o = it->second;
     std::uint32_t const remaining = o->shares;
     book_.remove(o);
     pool_.release(o);
-    resting_.erase(it);
+    resting_.erase(id);
     sink_.on_cancelled(OrderCancelled{id, remaining});
 }
 
 void Matcher::on_modify(
     OrderId old_id, OrderId new_id, Price4 new_price, std::uint32_t new_shares
 ) {
-    auto it = resting_.find(value_of(old_id));
-    if (it == resting_.end()) {
+    Order* o = resting_.find(old_id);
+    if (o == nullptr) {
         sink_.on_rejected(OrderRejected{new_id, RejectReason::OrderNotFound});
         return;
     }
-    Order* o = it->second;
     Side const side = o->side;
     std::uint32_t const remaining = o->shares;
     book_.remove(o);
     pool_.release(o);
-    resting_.erase(it);
+    resting_.erase(old_id);
     sink_.on_cancelled(OrderCancelled{old_id, remaining});
     // Cancel-replace loses time priority and may cross on re-entry.
     on_new(new_id, side, OrderType::Limit, new_price, new_shares);

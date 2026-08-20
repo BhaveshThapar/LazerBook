@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# A UBSan diagnostic prints but does not fail a process by default, which would
+# let undefined behaviour pass CI silently.
+env:
+  ASAN_OPTIONS: halt_on_error=1:abort_on_error=1
+  UBSAN_OPTIONS: halt_on_error=1:abort_on_error=1:print_stacktrace=1
+
 jobs:
   build-and-test:
     name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
@@ -30,6 +36,8 @@ jobs:
             build_type: Release
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Select compiler (Linux)
         if: runner.os == 'Linux'
@@ -48,13 +56,75 @@ jobs:
           if [ "${{ matrix.build_type }}" = "Debug" ]; then
             SAN="-DLAZERBOOK_ENABLE_ASAN=ON -DLAZERBOOK_ENABLE_UBSAN=ON"
           fi
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} $SAN
+          # Bench targets are built so they cannot rot unnoticed; they were
+          # never compiled in CI before.
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DLAZERBOOK_BUILD_BENCH=ON $SAN
 
       - name: Build
         run: cmake --build build -j
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+      - name: Replay validation
+        run: ./build/bench/replay_validate 1000000
+
+  differential:
+    name: differential vs liquibook
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build with liquibook
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DLAZERBOOK_BUILD_BENCH=ON -DLAZERBOOK_WITH_LIQUIBOOK=ON
+          cmake --build build -j
+      - name: Gated differential unit tests
+        run: ctest --test-dir build --output-on-failure -R liquibook
+      - name: Random-stress differential
+        run: ./build/bench/diff_validate --seeds 4 --count 100000
+
+  tsan:
+    name: thread sanitizer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: |
+          echo "CC=clang-18"    >> "$GITHUB_ENV"
+          echo "CXX=clang++-18" >> "$GITHUB_ENV"
+      - name: Build and test under TSan
+        run: |
+          cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug \
+            -DLAZERBOOK_ENABLE_TSAN=ON
+          cmake --build build-tsan -j
+          ctest --test-dir build-tsan --output-on-failure
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install clang-tidy-18
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy-18
+      - name: Configure (compile_commands.json)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-18
+      - name: Run clang-tidy
+        # .clang-tidy sets WarningsAsErrors '*', so any diagnostic fails here.
+        run: |
+          git ls-files 'src/*.cpp' | xargs clang-tidy-18 -p build
 
   format:
     name: clang-format
@@ -64,6 +134,8 @@ jobs:
       - name: Install clang-format-18
         run: sudo apt-get update && sudo apt-get install -y clang-format-18
       - name: Check formatting
+        # Parenthesised so -o binds correctly and bench/ and tools/ are covered.
         run: |
-          find include src tests -name '*.hpp' -o -name '*.cpp' \
+          find include src tests bench tools \
+            \( -name '*.hpp' -o -name '*.cpp' \) \
             | xargs clang-format-18 --dry-run -Werror

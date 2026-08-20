@@ -2,22 +2,31 @@
 
 namespace lazerbook {
 
-Book::Book(Price4 min_price, std::uint32_t num_ticks)
+Book::Book(Price4 min_price, std::uint32_t num_ticks, std::uint32_t tick_size)
     : min_price_(min_price),
       num_ticks_(num_ticks),
+      tick_size_((tick_size == 0) ? 1 : tick_size),
       bids_(num_ticks),
       asks_(num_ticks),
+      bid_bits_(num_ticks),
+      ask_bits_(num_ticks),
       best_bid_idx_(kInvalidIdx),
       best_ask_idx_(kInvalidIdx) {}
 
 std::uint32_t Book::index_of(Price4 price) const noexcept {
-    return value_of(price) - value_of(min_price_);
+    return (value_of(price) - value_of(min_price_)) / tick_size_;
 }
 
 bool Book::in_range(Price4 price) const noexcept {
     std::uint32_t const p = value_of(price);
     std::uint32_t const lo = value_of(min_price_);
-    return p >= lo && (p - lo) < num_ticks_;
+    if (p < lo) {
+        return false;
+    }
+    std::uint32_t const off = p - lo;
+    // Off-grid prices have no slot. Rounding them would silently corrupt the
+    // reconstruction, so they are out of range and get counted as such.
+    return (off % tick_size_) == 0 && (off / tick_size_) < num_ticks_;
 }
 
 PriceLevel* Book::level_at(Price4 price, Side side) noexcept {
@@ -52,10 +61,12 @@ void Book::add(Order* o) noexcept {
     ++lvl.order_count;
 
     if (o->side == Side::Buy) {
+        bid_bits_.set(idx);
         if (best_bid_idx_ == kInvalidIdx || idx > best_bid_idx_) {
             best_bid_idx_ = idx;
         }
     } else {
+        ask_bits_.set(idx);
         if (best_ask_idx_ == kInvalidIdx || idx < best_ask_idx_) {
             best_ask_idx_ = idx;
         }
@@ -82,10 +93,18 @@ void Book::remove(Order* o) noexcept {
     o->next = nullptr;
 
     if (lvl.empty()) {
-        if (o->side == Side::Buy && idx == best_bid_idx_) {
-            refresh_best_bid_down(idx);
-        } else if (o->side == Side::Sell && idx == best_ask_idx_) {
-            refresh_best_ask_up(idx);
+        if (o->side == Side::Buy) {
+            bid_bits_.clear(idx);
+            if (idx == best_bid_idx_) {
+                std::uint32_t const next = bid_bits_.highest();
+                best_bid_idx_ = (next == TickBitmap::kNone) ? kInvalidIdx : next;
+            }
+        } else {
+            ask_bits_.clear(idx);
+            if (idx == best_ask_idx_) {
+                std::uint32_t const next = ask_bits_.lowest();
+                best_ask_idx_ = (next == TickBitmap::kNone) ? kInvalidIdx : next;
+            }
         }
     }
 }
@@ -101,39 +120,25 @@ void Book::reduce(Order* o, std::uint32_t by) noexcept {
     lvl.total_shares -= by;
 }
 
-void Book::refresh_best_bid_down(std::uint32_t from_idx) noexcept {
-    // Scan downward from the just-emptied best toward min_price.
-    for (std::uint32_t i = from_idx; i-- > 0;) {
-        if (!bids_[i].empty()) {
-            best_bid_idx_ = i;
-            return;
-        }
-    }
-    best_bid_idx_ = kInvalidIdx;
-}
-
-void Book::refresh_best_ask_up(std::uint32_t from_idx) noexcept {
-    for (std::uint32_t i = from_idx + 1; i < num_ticks_; ++i) {
-        if (!asks_[i].empty()) {
-            best_ask_idx_ = i;
-            return;
-        }
-    }
-    best_ask_idx_ = kInvalidIdx;
+std::uint32_t Book::next_level_idx(std::uint32_t from, Side side) const noexcept {
+    // Bids walk downward from the touch, asks upward.
+    std::uint32_t const found =
+        (side == Side::Buy) ? bid_bits_.highest_le(from) : ask_bits_.lowest_ge(from);
+    return (found == TickBitmap::kNone) ? kInvalidIdx : found;
 }
 
 Price4 Book::best_bid() const noexcept {
     if (best_bid_idx_ == kInvalidIdx) {
         return Price4{0};
     }
-    return Price4{value_of(min_price_) + best_bid_idx_};
+    return price_at_index(best_bid_idx_);
 }
 
 Price4 Book::best_ask() const noexcept {
     if (best_ask_idx_ == kInvalidIdx) {
         return Price4{0};
     }
-    return Price4{value_of(min_price_) + best_ask_idx_};
+    return price_at_index(best_ask_idx_);
 }
 
 bool Book::empty(Side side) const noexcept {
