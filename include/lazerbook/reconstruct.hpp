@@ -3,12 +3,12 @@
 
 #include <lazerbook/book.hpp>
 #include <lazerbook/itch.hpp>
+#include <lazerbook/order_index.hpp>
 #include <lazerbook/order_pool.hpp>
 #include <lazerbook/types.hpp>
 
 #include <cstdint>
 #include <span>
-#include <unordered_map>
 
 namespace lazerbook {
 
@@ -40,6 +40,9 @@ class Reconstructor {
     [[nodiscard]] Stats const& stats() const noexcept { return stats_; }
     [[nodiscard]] std::size_t live_order_count() const noexcept { return orders_.size(); }
 
+    // See Matcher::prefetch.
+    void prefetch(OrderId ref) const noexcept { orders_.prefetch(ref); }
+
    private:
     void add_order(OrderId ref, Side side, Price4 price, std::uint32_t shares);
     void reduce_order(OrderId ref, std::uint32_t qty);
@@ -47,7 +50,7 @@ class Reconstructor {
 
     Book& book_;
     OrderPool& pool_;
-    std::unordered_map<std::uint64_t, Order*> orders_;
+    OrderIndex orders_;
     Stats stats_;
 };
 

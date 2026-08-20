@@ -4,7 +4,8 @@
 
 namespace lazerbook {
 
-Reconstructor::Reconstructor(Book& book, OrderPool& pool) : book_(book), pool_(pool) {}
+Reconstructor::Reconstructor(Book& book, OrderPool& pool)
+    : book_(book), pool_(pool), orders_(pool.capacity() * 2) {}
 
 void Reconstructor::add_order(OrderId ref, Side side, Price4 price, std::uint32_t shares) {
     if (!book_.in_range(price)) {
@@ -21,34 +22,33 @@ void Reconstructor::add_order(OrderId ref, Side side, Price4 price, std::uint32_
     o->price = price;
     o->shares = shares;
     book_.add(o);
-    orders_.emplace(value_of(ref), o);
+    orders_.insert(ref, o);
 }
 
 void Reconstructor::reduce_order(OrderId ref, std::uint32_t qty) {
-    auto it = orders_.find(value_of(ref));
-    if (it == orders_.end()) {
+    Order* o = orders_.find(ref);
+    if (o == nullptr) {
         ++stats_.skip_unknown_ref;
         return;
     }
-    Order* o = it->second;
     if (qty >= o->shares) {
         book_.reduce(o, o->shares);  // unlinks at zero
         pool_.release(o);
-        orders_.erase(it);
+        orders_.erase(ref);
     } else {
         book_.reduce(o, qty);
     }
 }
 
 void Reconstructor::delete_order(OrderId ref) {
-    auto it = orders_.find(value_of(ref));
-    if (it == orders_.end()) {
+    Order* o = orders_.find(ref);
+    if (o == nullptr) {
         ++stats_.skip_unknown_ref;
         return;
     }
-    book_.remove(it->second);
-    pool_.release(it->second);
-    orders_.erase(it);
+    book_.remove(o);
+    pool_.release(o);
+    orders_.erase(ref);
 }
 
 void Reconstructor::apply(itch::Message const& msg) {
@@ -72,14 +72,14 @@ void Reconstructor::apply(itch::Message const& msg) {
                 delete_order(m.order_reference_number);
                 ++stats_.deleted;
             } else if constexpr (std::is_same_v<T, itch::OrderReplace>) {
-                auto it = orders_.find(value_of(m.original_order_reference_number));
-                if (it == orders_.end()) {
+                Order* prev = orders_.find(m.original_order_reference_number);
+                if (prev == nullptr) {
                     ++stats_.skip_unknown_ref;
                 } else {
-                    Side const side = it->second->side;
-                    book_.remove(it->second);
-                    pool_.release(it->second);
-                    orders_.erase(it);
+                    Side const side = prev->side;
+                    book_.remove(prev);
+                    pool_.release(prev);
+                    orders_.erase(m.original_order_reference_number);
                     add_order(m.new_order_reference_number, side, m.price, m.shares);
                 }
                 ++stats_.replaced;

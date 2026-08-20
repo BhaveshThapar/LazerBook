@@ -23,8 +23,18 @@ add_executable(test_lazerbook
     test_spsc.cpp
     test_replay.cpp
     test_histogram.cpp
+    test_order_index.cpp
+    test_no_alloc.cpp
+    alloc_counter.cpp
     test_diff_liquibook.cpp
 )
+
+# The allocation-counting tests replace global operator new/delete. ASan
+# provides its own, and defining both is undefined -- so under ASan the
+# replacements and the tests that need them are compiled out.
+if(LAZERBOOK_ENABLE_ASAN)
+    target_compile_definitions(test_lazerbook PRIVATE LAZERBOOK_NO_ALLOC_COUNTER=1)
+endif()
 
 target_link_libraries(test_lazerbook PRIVATE
     lazerbook doctest::doctest
