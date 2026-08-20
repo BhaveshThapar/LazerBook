@@ -29,7 +29,17 @@ struct PriceLevel {
 // performs no matching.
 class Book {
    public:
-    Book(Price4 min_price, std::uint32_t num_ticks);
+    // tick_size is the price increment one ladder slot represents, in Price4
+    // units. It defaults to 1 (sub-penny), which is what the single-symbol
+    // tests and benches use.
+    //
+    // Real quotes are almost all on the penny grid: NMS stocks priced at or
+    // above $1.00 may only be quoted in $0.01 increments, which is 100 Price4
+    // units. Indexing those at tick_size 1 would leave 99 of every 100 slots
+    // permanently empty and cap a 1024-slot ladder at a $0.10 window -- far
+    // too narrow for a real symbol. Sub-dollar issues, which may quote in
+    // $0.0001, get tick_size 1 instead.
+    Book(Price4 min_price, std::uint32_t num_ticks, std::uint32_t tick_size = 1);
 
     void add(Order* o) noexcept;                       // append at its level's tail
     void remove(Order* o) noexcept;                    // unlink; caller releases to pool
@@ -45,10 +55,11 @@ class Book {
     [[nodiscard]] bool in_range(Price4 price) const noexcept;
     // Precondition: in_range(price).
     [[nodiscard]] std::uint32_t index_of_price(Price4 price) const noexcept {
-        return value_of(price) - value_of(min_price_);
+        return (value_of(price) - value_of(min_price_)) / tick_size_;
     }
     [[nodiscard]] Price4 min_price() const noexcept { return min_price_; }
     [[nodiscard]] std::uint32_t num_ticks() const noexcept { return num_ticks_; }
+    [[nodiscard]] std::uint32_t tick_size() const noexcept { return tick_size_; }
 
     // First non-empty level at or beyond `from`, walking away from the touch.
     // O(1) via the occupancy bitmap; used by FOK's fillable-quantity check so
@@ -58,7 +69,7 @@ class Book {
         return (side == Side::Buy) ? bids_[idx] : asks_[idx];
     }
     [[nodiscard]] Price4 price_at_index(std::uint32_t idx) const noexcept {
-        return Price4{value_of(min_price_) + idx};
+        return Price4{value_of(min_price_) + (idx * tick_size_)};
     }
 
     static constexpr std::uint32_t kInvalidIdx = 0xFFFFFFFFU;
@@ -68,6 +79,7 @@ class Book {
 
     Price4 min_price_;
     std::uint32_t num_ticks_;
+    std::uint32_t tick_size_;
     std::vector<PriceLevel> bids_;  // indexed by price - min_price
     std::vector<PriceLevel> asks_;
     // Occupancy summaries. Emptying the touch used to trigger a linear rescan

@@ -49,6 +49,14 @@ class OrderPool {
         --in_use_;
     }
 
+    // Slot index of an order in this pool. Lets a caller key side tables by
+    // slot instead of adding fields to Order, which is held at 40 bytes so it
+    // shares a cache line with its neighbour.
+    // Precondition: o was acquired from this pool.
+    [[nodiscard]] std::size_t index_of(Order const* o) const noexcept {
+        return static_cast<std::size_t>(o - storage_.data());
+    }
+
     [[nodiscard]] std::size_t in_use() const noexcept { return in_use_; }
     [[nodiscard]] std::size_t capacity() const noexcept { return capacity_; }
     [[nodiscard]] std::size_t available() const noexcept { return capacity_ - in_use_; }

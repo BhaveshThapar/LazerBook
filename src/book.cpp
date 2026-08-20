@@ -2,9 +2,10 @@
 
 namespace lazerbook {
 
-Book::Book(Price4 min_price, std::uint32_t num_ticks)
+Book::Book(Price4 min_price, std::uint32_t num_ticks, std::uint32_t tick_size)
     : min_price_(min_price),
       num_ticks_(num_ticks),
+      tick_size_((tick_size == 0) ? 1 : tick_size),
       bids_(num_ticks),
       asks_(num_ticks),
       bid_bits_(num_ticks),
@@ -13,13 +14,19 @@ Book::Book(Price4 min_price, std::uint32_t num_ticks)
       best_ask_idx_(kInvalidIdx) {}
 
 std::uint32_t Book::index_of(Price4 price) const noexcept {
-    return value_of(price) - value_of(min_price_);
+    return (value_of(price) - value_of(min_price_)) / tick_size_;
 }
 
 bool Book::in_range(Price4 price) const noexcept {
     std::uint32_t const p = value_of(price);
     std::uint32_t const lo = value_of(min_price_);
-    return p >= lo && (p - lo) < num_ticks_;
+    if (p < lo) {
+        return false;
+    }
+    std::uint32_t const off = p - lo;
+    // Off-grid prices have no slot. Rounding them would silently corrupt the
+    // reconstruction, so they are out of range and get counted as such.
+    return (off % tick_size_) == 0 && (off / tick_size_) < num_ticks_;
 }
 
 PriceLevel* Book::level_at(Price4 price, Side side) noexcept {
@@ -124,14 +131,14 @@ Price4 Book::best_bid() const noexcept {
     if (best_bid_idx_ == kInvalidIdx) {
         return Price4{0};
     }
-    return Price4{value_of(min_price_) + best_bid_idx_};
+    return price_at_index(best_bid_idx_);
 }
 
 Price4 Book::best_ask() const noexcept {
     if (best_ask_idx_ == kInvalidIdx) {
         return Price4{0};
     }
-    return Price4{value_of(min_price_) + best_ask_idx_};
+    return price_at_index(best_ask_idx_);
 }
 
 bool Book::empty(Side side) const noexcept {

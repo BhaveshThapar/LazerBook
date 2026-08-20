@@ -11,6 +11,7 @@ lazerbook_add_bench(bench_power)
 lazerbook_add_bench(fba_compare)
 lazerbook_add_bench(fba_sweep)
 lazerbook_add_bench(replay_validate)
+lazerbook_add_bench(bench_multi)
 
 if(LAZERBOOK_WITH_LIQUIBOOK)
     add_executable(diff_validate diff_validate.cpp)
