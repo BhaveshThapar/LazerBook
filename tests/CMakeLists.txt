@@ -23,6 +23,7 @@ add_executable(test_lazerbook
     test_spsc.cpp
     test_replay.cpp
     test_histogram.cpp
+    test_tick_bitmap.cpp
     test_order_index.cpp
     test_no_alloc.cpp
     alloc_counter.cpp
