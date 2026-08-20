@@ -104,4 +104,29 @@ void Reconstructor::apply_bytes(std::span<std::uint8_t const> bytes) {
     apply(*res);
 }
 
+void Reconstructor::replace_order(
+    OrderId original, OrderId replacement, Price4 price, std::uint32_t shares
+) {
+    Order* prev = orders_.find(original);
+    if (prev == nullptr) {
+        ++stats_.skip_unknown_ref;
+    } else {
+        Side const side = prev->side;
+        book_.remove(prev);
+        pool_.release(prev);
+        orders_.erase(original);
+        add_order(replacement, side, price, shares);
+    }
+    ++stats_.replaced;
+}
+
+std::size_t Reconstructor::apply_view_bytes(std::span<std::uint8_t const> bytes) {
+    ViewHandler h{*this};
+    std::size_t const consumed = itch::visit(bytes, h);
+    if (consumed == 0) {
+        ++stats_.skip_parse_error;
+    }
+    return consumed;
+}
+
 }  // namespace lazerbook

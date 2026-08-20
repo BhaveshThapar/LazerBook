@@ -105,3 +105,54 @@ TEST_CASE("apply_bytes counts parse errors") {
     recon.apply_bytes(std::span<std::uint8_t const>(junk.data(), junk.size()));
     CHECK(recon.stats().skip_parse_error == 1);
 }
+
+TEST_CASE("zero-copy view path reconstructs identically to the owning parser") {
+    // The two entry points must not drift: same stream, same book state, same
+    // counters. This is what licenses the pipeline to use the view path.
+    constexpr std::uint32_t kTicks = 512;
+    itch::synth::Synth synth(0xC0FFEE, Price4{50000}, kTicks);
+
+    Book book_a(Price4{50000}, kTicks);
+    OrderPool pool_a(1 << 16);
+    Reconstructor recon_a(book_a, pool_a);
+
+    Book book_b(Price4{50000}, kTicks);
+    OrderPool pool_b(1 << 16);
+    Reconstructor recon_b(book_b, pool_b);
+
+    std::array<std::uint8_t, 64> buf{};
+    for (int i = 0; i < 100000; ++i) {
+        std::size_t const len = synth.next(buf);
+        std::span<std::uint8_t const> const bytes(buf.data(), len);
+        recon_a.apply_bytes(bytes);
+        REQUIRE(recon_b.apply_view_bytes(bytes) == len);
+    }
+
+    CHECK(recon_a.live_order_count() == recon_b.live_order_count());
+    CHECK(book_a.best_bid() == book_b.best_bid());
+    CHECK(book_a.best_ask() == book_b.best_ask());
+
+    auto const& sa = recon_a.stats();
+    auto const& sb = recon_b.stats();
+    CHECK(sa.added == sb.added);
+    CHECK(sa.executed == sb.executed);
+    CHECK(sa.cancelled == sb.cancelled);
+    CHECK(sa.deleted == sb.deleted);
+    CHECK(sa.replaced == sb.replaced);
+    CHECK(sa.trades == sb.trades);
+    CHECK(sa.skip_unknown_ref == sb.skip_unknown_ref);
+    CHECK(sa.skip_oor == sb.skip_oor);
+
+    // Level-by-level equality, not just the touch.
+    for (std::uint32_t i = 0; i < kTicks; ++i) {
+        Price4 const px{50000U + i};
+        for (Side s : {Side::Buy, Side::Sell}) {
+            PriceLevel const* la = book_a.level_at(px, s);
+            PriceLevel const* lb = book_b.level_at(px, s);
+            REQUIRE(la != nullptr);
+            REQUIRE(lb != nullptr);
+            REQUIRE(la->total_shares == lb->total_shares);
+            REQUIRE(la->order_count == lb->order_count);
+        }
+    }
+}

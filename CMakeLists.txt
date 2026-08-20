@@ -63,7 +63,7 @@ endif()
 # --- Core static library ---------------------------------------------------
 add_library(lazerbook STATIC
     src/itch.cpp src/book.cpp src/matcher.cpp src/reconstruct.cpp
-    src/fba.cpp src/sim.cpp src/itch_synth.cpp)
+    src/fba.cpp src/sim.cpp src/itch_synth.cpp src/framing.cpp)
 target_include_directories(lazerbook PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(lazerbook PRIVATE
